@@ -1,0 +1,86 @@
+name: Zephyr CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ZEPHYR_TOOLCHAIN_VARIANT: gnuarmemb
+      # The manifest in this repo will be used by `west init -l`
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ hashFiles('**/.ccache') }}
+
+      - name: Install apt packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build gperf python3-pip python3-venv python3-setuptools \
+            python3-wheel gcc-arm-none-eabi device-tree-compiler ccache
+
+      - name: Setup Python virtualenv
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install --upgrade pip setuptools
+
+      - name: Install west
+        run: |
+          . .venv/bin/activate
+          pip install west
+
+      - name: Initialize west workspace and fetch Zephyr
+        run: |
+          . .venv/bin/activate
+          # Use local manifest (this repo contains west.yml)
+          west init -l
+          west update
+
+      - name: Install Zephyr Python requirements
+        run: |
+          . .venv/bin/activate
+          pip install -r zephyr/scripts/requirements.txt
+
+      - name: Build all apps found in repository
+        run: |
+          set -euo pipefail
+          . .venv/bin/activate
+          # Find all app directories containing a CMakeLists.txt
+          apps=$(git ls-files -- "*/app/CMakeLists.txt" | sed -E 's#/CMakeLists.txt##' | sort -u)
+          if [ -z "$apps" ]; then
+            echo "No app/ folders with CMakeLists.txt found"
+            exit 0
+          fi
+          for d in $apps; do
+            echo "Building $d"
+            pushd "$d"
+            west build -b nucleo_f446re -p always
+            popd
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-build-artifacts
+          path: |
+            **/build/zephyr/zephyr.elf
+            **/build/zephyr/zephyr.bin
+            **/build/zephyr/zephyr.hex
+            **/build/**
