@@ -55,23 +55,34 @@ jobs:
 
       - name: Install Zephyr Python requirements
         run: |
+          set -euo pipefail
           . .venv/bin/activate
-          pip install -r zephyr/scripts/requirements.txt
+
+          if [ ! -d "$GITHUB_WORKSPACE/zephyr" ]; then
+            git clone --depth 1 --branch v4.4.0 https://github.com/zephyrproject-rtos/zephyr "$GITHUB_WORKSPACE/zephyr"
+          fi
+
+          pip install -r "$GITHUB_WORKSPACE/zephyr/scripts/requirements.txt"
 
       - name: Build all apps found in repository
         run: |
           set -euo pipefail
           . .venv/bin/activate
+          export ZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
+          export PATH="$ZEPHYR_BASE/scripts:$PATH"
+
           # Find all app directories containing a CMakeLists.txt
           apps=$(git ls-files -- "*/app/CMakeLists.txt" | sed -E 's#/CMakeLists.txt##' | sort -u)
           if [ -z "$apps" ]; then
             echo "No app/ folders with CMakeLists.txt found"
             exit 0
           fi
+
           for d in $apps; do
             echo "Building $d"
             pushd "$d"
-            west build -b nucleo_f446re -p always
+            cmake -S . -B build -GNinja -DBOARD=nucleo_f446re -DZEPHYR_BASE="$ZEPHYR_BASE"
+            cmake --build build
             popd
           done
 
