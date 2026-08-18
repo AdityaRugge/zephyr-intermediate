@@ -2,9 +2,10 @@ name: Zephyr CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'Test_**' ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, 'Test_**' ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -34,9 +35,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build gperf python3-pip python3-venv \
-            python3-setuptools python3-wheel gcc-arm-none-eabi \
-            device-tree-compiler ccache
+            build-essential cmake ninja-build gperf \
+            python3-pip python3-venv python3-setuptools python3-wheel \
+            gcc-arm-none-eabi device-tree-compiler ccache
 
       - name: Setup Python virtualenv
         run: |
@@ -54,39 +55,30 @@ jobs:
           . .venv/bin/activate
           west init -l .
           west update
+          west zephyr-export
 
       - name: Install Zephyr Python requirements
         run: |
-          set -euo pipefail
           . .venv/bin/activate
-          if [ ! -d "$GITHUB_WORKSPACE/zephyr" ]; then
-            git clone --depth 1 --branch v4.4.0 \
-              https://github.com/zephyrproject-rtos/zephyr \
-              "$GITHUB_WORKSPACE/zephyr"
-          fi
-          pip install -r "$GITHUB_WORKSPACE/zephyr/scripts/requirements.txt"
+          pip install -r zephyr/scripts/requirements.txt
 
-      - name: Build all apps found in repository
+      - name: Build all apps
         run: |
           set -euo pipefail
           . .venv/bin/activate
-          export ZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
-          export PATH="$ZEPHYR_BASE/scripts:$PATH"
-          apps=$(git ls-files -- "*/app/CMakeLists.txt" | sed -E 's#/CMakeLists.txt##' | sort -u)
+          apps=$(git ls-files -- "app/CMakeLists.txt" "**/app/CMakeLists.txt" \
+            | sed -E 's#/CMakeLists.txt##' | sort -u)
           if [ -z "$apps" ]; then
             echo "No app/ folders with CMakeLists.txt found"
-            exit 0
+            exit 1
           fi
           for d in $apps; do
-            echo "Building $d"
-            pushd "$d"
-            cmake -S . -B build -GNinja \
-              -DBOARD=nucleo_f446re \
-              -DZEPHYR_BASE="$ZEPHYR_BASE" \
-              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-            cmake --build build
-            popd
+            echo "=========================================="
+            echo "Building: $d"
+            echo "=========================================="
+            west build -p always -b nucleo_f446re "$d" \
+              -- -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           done
 
       - name: Upload build artifacts
