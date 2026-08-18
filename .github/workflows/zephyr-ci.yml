@@ -72,7 +72,7 @@ jobs:
           export PATH="$ZEPHYR_BASE/scripts:$PATH"
 
           # Find all app directories containing a CMakeLists.txt
-          apps=$(git ls-files -- "*/app/CMakeLists.txt" | sed -E 's#/CMakeLists.txt##' | sort -u)
+          apps=$(git ls-files -- "app/CMakeLists.txt" "**/app/CMakeLists.txt" | sed -E 's#/CMakeLists.txt##' | sort -u)
           if [ -z "$apps" ]; then
             echo "No app/ folders with CMakeLists.txt found"
             exit 0
