@@ -25,55 +25,47 @@ jobs:
             python3-pip python3-venv python3-setuptools python3-wheel \
             gcc-arm-none-eabi device-tree-compiler ccache
 
-      - name: Setup Python virtualenv
+      - name: Setup Python virtualenv and install west
         run: |
           python3 -m venv .venv
           . .venv/bin/activate
           pip install --upgrade pip setuptools west
 
-      - name: Initialize west workspace and fetch Zephyr
+      - name: Initialize west workspace
         run: |
           . .venv/bin/activate
           west init -l .
           west update
           west zephyr-export
 
-      - name: Debug workspace layout
+      - name: Show west workspace layout
         run: |
           . .venv/bin/activate
-          echo "=== pwd ==="
-          pwd
-          echo "=== GITHUB_WORKSPACE ==="
-          echo $GITHUB_WORKSPACE
-          echo "=== ls .. ==="
-          ls ..
-          echo "=== west list ==="
+          echo "west list:"
           west list
-          echo "=== find ZephyrConfig ==="
-          find / -name "ZephyrConfig.cmake" 2>/dev/null | head -5
-          echo "=== find zephyr-env ==="
-          find / -name "zephyr-env.sh" 2>/dev/null | head -3
-          echo "=== west config ==="
-          west config --list
+          echo "zephyr path:"
+          west list zephyr -f '{abspath}'
+          echo "ZephyrConfig.cmake:"
+          find / -name "ZephyrConfig.cmake" 2>/dev/null | head -5 || echo "not found"
 
       - name: Install Zephyr Python requirements
         run: |
           . .venv/bin/activate
           ZEPHYR_PATH=$(west list zephyr -f '{abspath}')
-          echo "Zephyr is at: $ZEPHYR_PATH"
           pip install -r "$ZEPHYR_PATH/scripts/requirements.txt"
 
-      - name: Build all apps
+      - name: Build
         run: |
           set -euo pipefail
           . .venv/bin/activate
           ZEPHYR_PATH=$(west list zephyr -f '{abspath}')
-          echo "Zephyr path: $ZEPHYR_PATH"
           export ZEPHYR_BASE="$ZEPHYR_PATH"
+          echo "ZEPHYR_BASE=$ZEPHYR_BASE"
           apps=$(git ls-files -- "app/CMakeLists.txt" "**/app/CMakeLists.txt" \
             | sed -E 's#/CMakeLists.txt##' | sort -u)
+          echo "Apps found: $apps"
           if [ -z "$apps" ]; then
-            echo "No app/ folders found"
+            echo "No apps found"
             exit 1
           fi
           for d in $apps; do
@@ -103,12 +95,12 @@ jobs:
       - name: Install tools
         run: sudo apt-get install -y clang-format cppcheck
 
-      - name: Check formatting with clang-format
+      - name: Check formatting
         run: |
           find app/src -name "*.c" -o -name "*.h" | \
             xargs clang-format --dry-run --Werror
 
-      - name: Run cppcheck static analysis
+      - name: Static analysis
         run: |
           cppcheck --enable=all --error-exitcode=1 \
             --suppress=missingIncludeSystem \
