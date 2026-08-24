@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          path: app
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,11 +36,11 @@ jobs:
       - name: Set up Zephyr west workspace
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          app-path: .
+          app-path: app
           toolchains: arm-zephyr-eabi:x86_64-zephyr-elf
 
       - name: Build application
-        run: west build -p always -b "${{ matrix.board }}" app --build-dir "build/${{ matrix.board }}" -- -DZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
+        run: west build -p always -b "${{ matrix.board }}" app/app --build-dir "build/${{ matrix.board }}" -- -DZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
@@ -57,6 +59,8 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          path: app
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -66,14 +70,14 @@ jobs:
       - name: Set up Zephyr west workspace
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          app-path: .
+          app-path: app
           toolchains: arm-zephyr-eabi:x86_64-zephyr-elf
 
       - name: Install QEMU
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86
 
       - name: Build QEMU image
-        run: west build -p always -b qemu_x86 app --build-dir build/qemu_x86 -- -DZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
+        run: west build -p always -b qemu_x86 app/app --build-dir build/qemu_x86 -- -DZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
 
       - name: Run image and verify application result
         run: |
@@ -101,6 +105,8 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          path: app
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -110,11 +116,11 @@ jobs:
       - name: Set up Zephyr west workspace
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          app-path: .
+          app-path: app
           toolchains: x86_64-zephyr-elf
 
       - name: Build native_sim image
-        run: west build -p always -b native_sim app --build-dir build/native_sim -- -DZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
+        run: west build -p always -b native_sim app/app --build-dir build/native_sim -- -DZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
 
       - name: Run native_sim image and verify application result
         run: |
