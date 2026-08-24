@@ -1,77 +1,74 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-LOG_MODULE_REGISTER(demo, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(mutex_demo, LOG_LEVEL_INF);
 
-// Define stack size for threads
-#define STACK_SIZE 1024
+#define STACK_SIZE 2048
+#define PRIO_Task1 3
+#define PRIO_Task2 3
 
-// Define thread priorities
-#define PRIO_LOW 7
-#define PRIO_MED 5
-#define PRIO_HIGH 3
-#define PRIO_COOP -1 // Cooperative priority
+// 1. Define the mutex (static initialization)
+K_MUTEX_DEFINE(counter_mutex);
 
-void t_low_fn(void *p1, void *p2, void *p3) {
-  LOG_INF("T_LOW RUNNING");
+// Shared resource
+static int shared_counter = 0;
 
-  while (1) {
-    LOG_INF("T_LOW ticking: %u", k_uptime_get_32());
-    k_sleep(K_MSEC(300));
-  }
-}
-
-void t_med_fn(void *p1, void *p2, void *p3) {
-  LOG_INF("T_MED RUNNING");
-
-  while (1) {
-    LOG_INF("T_MED ticking: %u", k_uptime_get_32());
-    k_sleep(K_MSEC(200));
-  }
-}
-
-void t_high_fn(void *p1, void *p2, void *p3) {
-  LOG_INF("T_HIGH RUNNING");
-
-  while (1) {
-    LOG_INF("T_HIGH ticking: %u", k_uptime_get_32());
-    k_sleep(K_MSEC(100));
-  }
-}
-
-void t_coop_fn(void *p1, void *p2, void *p3) {
-  LOG_INF("T_Coop RUNNING (Priority -1)");
-
-  while (1) {
-    LOG_INF("T_Coop: Starting 5 iterations of busy work...");
-
-    for (int i = 0; i < 5; i++) {
-      volatile int dummy = 0;
-      for (int j = 0; j < 10000; j++) {
-        dummy += j;
-      }
-      /* Minimal work per iteration; avoid logging each step to prevent
-       * flooding the log backend (which is slow and can drop messages).
-       */
-      k_yield();
+void t_Task1(void *p1, void *p2, void *p3) {
+    LOG_INF("Task1 started");
+    
+    for (int i = 0; i < 10; i++) {
+        // 2. Lock the mutex (wait forever if busy)
+        k_mutex_lock(&counter_mutex, K_FOREVER);
+        
+        // --- CRITICAL SECTION START ---
+        // Only one thread can be here at a time
+        shared_counter++;
+        LOG_INF("Task1: counter = %d", shared_counter);
+        // --- CRITICAL SECTION END ---
+        
+        // 3. Unlock the mutex (MANDATORY)
+        k_mutex_unlock(&counter_mutex);
+        
+        k_msleep(100);
     }
-    LOG_INF("T_Coop: Completed cycle");
-    k_sleep(K_MSEC(100)); // Sleep to allow other threads to run
-  }
+    
+    LOG_INF("Task1 finished");
 }
 
-// Define threads with different priorities
-K_THREAD_DEFINE(thread_low, STACK_SIZE, t_low_fn, NULL, NULL, NULL, PRIO_LOW, 0,
-                0);
-K_THREAD_DEFINE(thread_med, STACK_SIZE, t_med_fn, NULL, NULL, NULL, PRIO_MED, 0,
-                0);
-K_THREAD_DEFINE(thread_high, STACK_SIZE, t_high_fn, NULL, NULL, NULL, PRIO_HIGH,
-                0, 0);
-K_THREAD_DEFINE(thread_coop, STACK_SIZE, t_coop_fn, NULL, NULL, NULL, PRIO_COOP,
-                0, 0);
+void t_Task2(void *p1, void *p2, void *p3) {
+    LOG_INF("Task2 started");
+    
+    for (int i = 0; i < 10; i++) {
+        // 2. Lock the mutex
+        k_mutex_lock(&counter_mutex, K_FOREVER);
+        
+        // --- CRITICAL SECTION START ---
+        shared_counter++;
+        LOG_INF("Task2: counter = %d", shared_counter);
+        // --- CRITICAL SECTION END ---
+        
+        // 3. Unlock the mutex
+        k_mutex_unlock(&counter_mutex);
+        
+        k_msleep(150);
+    }
+    
+    LOG_INF("Task2 finished");
+}
 
-// Main function
+K_THREAD_DEFINE(thread_1, STACK_SIZE, t_Task1, NULL, NULL, NULL, PRIO_Task1, 0, 0);
+K_THREAD_DEFINE(thread_2, STACK_SIZE, t_Task2, NULL, NULL, NULL, PRIO_Task2, 0, 0);
+
 int main(void) {
-  LOG_INF("Main thread started");
-  return 0;
-}
+    LOG_INF("Main: Starting mutex example");
+    LOG_INF("Expected final counter: 20");
+    
+    // Wait for threads to finish
+    k_sleep(K_SECONDS(5));
+    
+    LOG_INF("=== FINAL RESULT ===");
+    LOG_INF("Counter: %d", shared_counter);
+    LOG_INF("Status: %s", shared_counter == 20 ? "PASS (No race condition)" : "FAIL");
+    
+    return 0;
+}   
