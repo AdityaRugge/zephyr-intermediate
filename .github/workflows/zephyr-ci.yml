@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ZEPHYR_BASE: ${{ github.workspace }}/zephyr
+
 jobs:
   build:
     name: Build ${{ matrix.board }}
