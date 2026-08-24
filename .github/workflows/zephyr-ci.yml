@@ -2,96 +2,45 @@ name: Zephyr CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BOARD: nucleo_f446re
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    env:
-      ZEPHYR_TOOLCHAIN_VARIANT: gnuarmemb
-      # The manifest in this repo will be used by `west init -l`
+    name: Build nucleo_f446re
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Cache pip
-        uses: actions/cache@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          python-version: '3.12'
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Set up Zephyr west workspace
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ hashFiles('**/.ccache') }}
+          app-path: .
+          toolchains: arm-zephyr-eabi
 
-      - name: Install apt packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build gperf python3-pip python3-venv python3-setuptools \
-            python3-wheel gcc-arm-none-eabi device-tree-compiler ccache
+      - name: Build application
+        run: west build -p always -b "$BOARD" app --build-dir build
 
-      - name: Setup Python virtualenv
-        run: |
-          python3 -m venv .venv
-          . .venv/bin/activate
-          pip install --upgrade pip setuptools
-
-      - name: Install west
-        run: |
-          . .venv/bin/activate
-          pip install west
-
-      - name: Initialize west workspace and fetch Zephyr
-        run: |
-          . .venv/bin/activate
-          # Use local manifest (this repo contains west.yml)
-          west init -l
-          west update
-
-      - name: Install Zephyr Python requirements
-        run: |
-          set -euo pipefail
-          . .venv/bin/activate
-
-          if [ ! -d "$GITHUB_WORKSPACE/zephyr" ]; then
-            git clone --depth 1 --branch v4.4.0 https://github.com/zephyrproject-rtos/zephyr "$GITHUB_WORKSPACE/zephyr"
-          fi
-
-          pip install -r "$GITHUB_WORKSPACE/zephyr/scripts/requirements.txt"
-
-      - name: Build all apps found in repository
-        run: |
-          set -euo pipefail
-          . .venv/bin/activate
-          export ZEPHYR_BASE="$GITHUB_WORKSPACE/zephyr"
-          export PATH="$ZEPHYR_BASE/scripts:$PATH"
-
-          # Find all app directories containing a CMakeLists.txt
-          apps=$(git ls-files -- "*/app/CMakeLists.txt" | sed -E 's#/CMakeLists.txt##' | sort -u)
-          if [ -z "$apps" ]; then
-            echo "No app/ folders with CMakeLists.txt found"
-            exit 0
-          fi
-
-          for d in $apps; do
-            echo "Building $d"
-            pushd "$d"
-            cmake -S . -B build -GNinja -DBOARD=nucleo_f446re -DZEPHYR_BASE="$ZEPHYR_BASE"
-            cmake --build build
-            popd
-          done
-
-      - name: Upload build artifacts
+      - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: zephyr-build-artifacts
+          name: ${{ env.BOARD }}-firmware
+          if-no-files-found: error
           path: |
-            **/build/zephyr/zephyr.elf
-            **/build/zephyr/zephyr.bin
-            **/build/zephyr/zephyr.hex
-            **/build/**
+            build/zephyr/zephyr.elf
+            build/zephyr/zephyr.bin
+            build/zephyr/zephyr.hex
