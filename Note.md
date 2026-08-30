@@ -71,3 +71,7 @@ while (1) {
 When to use which:
 - Use `k_sleep()` when you need a delay or periodic execution (e.g., sensor reading every 100 ms).
 - Use `k_yield()` in cooperative threads to allow preemptive threads to run or to let other ready threads execute during long computations.
+
+#### Workqueue vs Threads
+Workqueue = sequential (jobs wait their turn) Threads = parallel (jobs run at the same time)
+
