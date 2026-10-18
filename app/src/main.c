@@ -1,77 +1,89 @@
 /*
- * Simple Event-Driven System with zbus
- *
- * TASKS:
- *   1. One zbus channel for sensor data
- *   2. Publish a simulated sensor sample every 100ms
- *   3. One listener - reacts instantly (fast display update)
- *   4. One subscriber - reacts on its own thread (slower)
+* Goal: Study reliability under pressure
+* Task:
+* Build a producer/consumer pipeline
+* Add a task watchdog
+* Simulate a stuck consumer (long k_sleep in consumer thread)
+* Observe: queue fills, watchdog fires, callback triggered
+* Add a health-check thread that monitors queue fill level and logs a warning at 75% capacity
  */
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/zbus/zbus.h>
+#include <zephyr/task_wdt/task_wdt.h>
 
-LOG_MODULE_REGISTER(zbus_simple, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(sensor_pipeline, LOG_LEVEL_INF);
 
 #define STACK_SIZE   1024
 #define SAMPLE_MS    100
-#define SAMPLE_COUNT 5
+#define SAMPLE_COUNT 10
+#define QUEUE_CAPACITY 4
+#define WDT_TIMEOUT_MS 1000 /* Watchdog timeout threshold */
+#define CONSUMER_STUCK_MS (WDT_TIMEOUT_MS + 500U)
 
-/* ---------- 1. Define the message + the channel ---------- */
+/* Each worker owns one task-watchdog channel. */
+static int producer_wdt_id = -1;
+static int consumer_wdt_id = -1;
+static char producer_wdt_name[] = "producer";
+static char consumer_wdt_name[] = "consumer";
+
+K_THREAD_STACK_DEFINE(consumer_stack, STACK_SIZE);
+K_THREAD_STACK_DEFINE(producer_stack, STACK_SIZE);
+static struct k_thread consumer_thread;
+static struct k_thread producer_thread;
+
+/* ---------- Message queue shared by the producer and consumer ---------- */
 
 struct sensor_msg {
     int value;
     uint32_t tick;
 };
 
-ZBUS_CHAN_DEFINE(sensor_chan,
-    struct sensor_msg,
-    NULL, NULL,
-    ZBUS_OBSERVERS_EMPTY,
-    ZBUS_MSG_INIT(.value = 0, .tick = 0)
-);
+K_MSGQ_DEFINE(sensor_queue, sizeof(struct sensor_msg), QUEUE_CAPACITY, 4);
 
-/* ---------- 3. Listener: runs immediately when data is published ---------- */
-
-static void display_cb(const struct zbus_channel *chan)
+static void task_wdt_expired(int channel_id, void *user_data)
 {
-    const struct sensor_msg *msg = zbus_chan_const_msg(chan);
-    LOG_INF("[DISPLAY] value=%d tick=%u", msg->value, msg->tick);
+    LOG_ERR("[TASK_WDT] %s timed out (channel %d)",
+            (char *)user_data, channel_id);
 }
 
-ZBUS_LISTENER_DEFINE(display_listener, display_cb);
+/* ---------- Consumer: removes and processes every queued sample ---------- */
 
-/* ---------- 4. Subscriber: has its own thread, reads at its own pace ---------- */
-
-ZBUS_SUBSCRIBER_DEFINE(logger_sub, 4);
-
-static void logger_thread_fn(void *p1, void *p2, void *p3)
+static void consumer_thread_fn(void *p1, void *p2, void *p3)
 {
-    const struct zbus_channel *chan;
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
 
-    while (!zbus_sub_wait(&logger_sub, &chan, K_FOREVER)) {
+    for (int i = 0; i < SAMPLE_COUNT; i++) {
         struct sensor_msg msg;
-        zbus_chan_read(&sensor_chan, &msg, K_NO_WAIT);
+        int ret = k_msgq_get(&sensor_queue, &msg, K_FOREVER);
+        if (ret != 0) {
+            LOG_ERR("[CONSUMER] queue read failed: %d", ret);
+            task_wdt_delete(consumer_wdt_id);
+            return;
+        }
 
-        k_msleep(250); /* Simulate slow processing */
+        k_msleep(CONSUMER_STUCK_MS);
 
-        LOG_INF("[LOGGER] value=%d tick=%u", msg.value, msg.tick);
+        LOG_INF("[CONSUMER] value=%d tick=%u queue=%u/%u",
+                msg.value, msg.tick,
+                k_msgq_num_used_get(&sensor_queue), QUEUE_CAPACITY);
+
+        task_wdt_feed(consumer_wdt_id);
     }
+
+    task_wdt_delete(consumer_wdt_id);
 }
 
-K_THREAD_DEFINE(logger_thread, STACK_SIZE, logger_thread_fn,
-                 NULL, NULL, NULL, 5, 0, 0);
-
-/* ---------- Connect listener + subscriber to the channel ---------- */
-
-ZBUS_CHAN_ADD_OBS(sensor_chan, display_listener, 3);
-ZBUS_CHAN_ADD_OBS(sensor_chan, logger_sub, 3);
-
-/* ---------- 2. Publisher: sends a sample every 100ms ---------- */
+/* ---------- Producer: creates samples and queues them for the consumer ---------- */
 
 static void sensor_thread_fn(void *p1, void *p2, void *p3)
 {
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
     for (int i = 0; i < SAMPLE_COUNT; i++) {
         k_msleep(SAMPLE_MS);
 
@@ -80,17 +92,59 @@ static void sensor_thread_fn(void *p1, void *p2, void *p3)
             .tick = k_uptime_get_32(),
         };
 
-        LOG_INF("[SENSOR] value=%d tick=%u", msg.value, msg.tick);
-        zbus_chan_pub(&sensor_chan, &msg, K_MSEC(50));
-    }
-}
+        int ret = k_msgq_put(&sensor_queue, &msg, K_FOREVER);
+        if (ret != 0) {
+            LOG_ERR("[PRODUCER] queue write failed: %d", ret);
+            task_wdt_delete(producer_wdt_id);
+            return;
+        }
 
-K_THREAD_DEFINE(sensor_thread, STACK_SIZE, sensor_thread_fn,
-                 NULL, NULL, NULL, 5, 0, 0);
+        LOG_INF("[PRODUCER] queued value=%d tick=%u queue=%u/%u",
+            msg.value, msg.tick,
+            k_msgq_num_used_get(&sensor_queue), QUEUE_CAPACITY);
+
+        task_wdt_feed(producer_wdt_id);
+    }
+
+    task_wdt_delete(producer_wdt_id);
+}
 
 int main(void)
 {
-    LOG_INF("=== Simple zbus Demo ===");
-    k_msleep(SAMPLE_COUNT * SAMPLE_MS + 500);
+    LOG_INF("=== Producer/consumer pipeline ===");
+
+    int ret = task_wdt_init(NULL);
+    if (ret != 0) {
+        LOG_ERR("Task watchdog initialization failed: %d", ret);
+        return ret;
+    }
+
+    producer_wdt_id = task_wdt_add(WDT_TIMEOUT_MS, task_wdt_expired,
+                                   producer_wdt_name);
+    if (producer_wdt_id < 0) {
+        LOG_ERR("Failed to add producer to task watchdog: %d", producer_wdt_id);
+        return producer_wdt_id;
+    }
+
+    consumer_wdt_id = task_wdt_add(WDT_TIMEOUT_MS, task_wdt_expired,
+                                   consumer_wdt_name);
+    if (consumer_wdt_id < 0) {
+        LOG_ERR("Failed to add consumer to task watchdog: %d", consumer_wdt_id);
+        task_wdt_delete(producer_wdt_id);
+        return consumer_wdt_id;
+    }
+
+    k_tid_t consumer_tid = k_thread_create(&consumer_thread, consumer_stack,
+                                            K_THREAD_STACK_SIZEOF(consumer_stack),
+                                            consumer_thread_fn,
+                                            NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+    k_tid_t producer_tid = k_thread_create(&producer_thread, producer_stack,
+                                            K_THREAD_STACK_SIZEOF(producer_stack),
+                                            sensor_thread_fn,
+                                            NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+
+    k_thread_join(producer_tid, K_FOREVER);
+    k_thread_join(consumer_tid, K_FOREVER);
+    LOG_INF("Pipeline complete");
     return 0;
 }
