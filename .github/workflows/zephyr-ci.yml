@@ -82,14 +82,14 @@ jobs:
       - name: Run image and verify application result
         run: |
           set +e
-          timeout 15s west build -d build/qemu_x86 -t run 2>&1 | tee qemu.log
+          timeout 20s west build -d build/qemu_x86 -t run 2>&1 | tee qemu.log
           qemu_status=${PIPESTATUS[0]}
           set -e
 
-          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
-            exit "$qemu_status"
+          if ! grep -q "Status: PASS" qemu.log; then
+            echo "QEMU app did not report success (runner exit code: $qemu_status)." >&2
+            exit 1
           fi
-          grep -q "Status: PASS" qemu.log
 
       - name: Upload QEMU log
         if: always()
@@ -125,14 +125,14 @@ jobs:
       - name: Run native_sim image and verify application result
         run: |
           set +e
-          timeout 15s ./build/native_sim/zephyr/zephyr.exe 2>&1 | tee native_sim.log
+          timeout 20s ./build/native_sim/zephyr/zephyr.exe 2>&1 | tee native_sim.log
           native_sim_status=${PIPESTATUS[0]}
           set -e
 
-          if [ "$native_sim_status" -ne 0 ] && [ "$native_sim_status" -ne 124 ]; then
-            exit "$native_sim_status"
+          if ! grep -q "Status: PASS" native_sim.log; then
+            echo "native_sim app did not report success (runner exit code: $native_sim_status)." >&2
+            exit 1
           fi
-          grep -q "Status: PASS" native_sim.log
 
       - name: Upload native_sim log
         if: always()

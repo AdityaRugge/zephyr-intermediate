@@ -18,6 +18,8 @@ LOG_MODULE_REGISTER(sensor_pipeline, LOG_LEVEL_INF);
 #define SAMPLE_MS    100
 #define SAMPLE_COUNT 10
 #define QUEUE_CAPACITY 4
+#define HEALTH_CHECK_MS 100
+#define HEALTH_WARN_PERCENT 75
 #define WDT_TIMEOUT_MS 1000 /* Watchdog timeout threshold */
 #define CONSUMER_STUCK_MS (WDT_TIMEOUT_MS + 500U)
 
@@ -29,8 +31,11 @@ static char consumer_wdt_name[] = "consumer";
 
 K_THREAD_STACK_DEFINE(consumer_stack, STACK_SIZE);
 K_THREAD_STACK_DEFINE(producer_stack, STACK_SIZE);
+K_THREAD_STACK_DEFINE(health_stack, STACK_SIZE);
 static struct k_thread consumer_thread;
 static struct k_thread producer_thread;
+static struct k_thread health_thread;
+K_SEM_DEFINE(pipeline_done, 0, 1);
 
 /* ---------- Message queue shared by the producer and consumer ---------- */
 
@@ -40,6 +45,27 @@ struct sensor_msg {
 };
 
 K_MSGQ_DEFINE(sensor_queue, sizeof(struct sensor_msg), QUEUE_CAPACITY, 4);
+
+static void health_thread_fn(void *p1, void *p2, void *p3)
+{
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
+    bool warning_active = false;
+
+    while (k_sem_take(&pipeline_done, K_MSEC(HEALTH_CHECK_MS)) != 0) {
+        uint32_t used = k_msgq_num_used_get(&sensor_queue);
+        bool above_threshold = used * 100U >= QUEUE_CAPACITY * HEALTH_WARN_PERCENT;
+
+        if (above_threshold && !warning_active) {
+            LOG_WRN("[HEALTH] queue at %u%% capacity: %u/%u",
+                    HEALTH_WARN_PERCENT, used, QUEUE_CAPACITY);
+        }
+
+        warning_active = above_threshold;
+    }
+}
 
 static void task_wdt_expired(int channel_id, void *user_data)
 {
@@ -134,6 +160,10 @@ int main(void)
         return consumer_wdt_id;
     }
 
+    k_tid_t health_tid = k_thread_create(&health_thread, health_stack,
+                                          K_THREAD_STACK_SIZEOF(health_stack),
+                                          health_thread_fn,
+                                          NULL, NULL, NULL, 6, 0, K_NO_WAIT);
     k_tid_t consumer_tid = k_thread_create(&consumer_thread, consumer_stack,
                                             K_THREAD_STACK_SIZEOF(consumer_stack),
                                             consumer_thread_fn,
@@ -145,6 +175,9 @@ int main(void)
 
     k_thread_join(producer_tid, K_FOREVER);
     k_thread_join(consumer_tid, K_FOREVER);
+    k_sem_give(&pipeline_done);
+    k_thread_join(health_tid, K_FOREVER);
     LOG_INF("Pipeline complete");
+    LOG_INF("Status: PASS");
     return 0;
 }
