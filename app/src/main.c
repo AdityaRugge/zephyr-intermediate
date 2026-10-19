@@ -1,183 +1,107 @@
-/*
-* Goal: Study reliability under pressure
-* Task:
-* Build a producer/consumer pipeline
-* Add a task watchdog
-* Simulate a stuck consumer (long k_sleep in consumer thread)
-* Observe: queue fills, watchdog fires, callback triggered
-* Add a health-check thread that monitors queue fill level and logs a warning at 75% capacity
- */
-
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/task_wdt/task_wdt.h>
+#include <zephyr/tracing/tracing.h>
 
-LOG_MODULE_REGISTER(sensor_pipeline, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(homework, LOG_LEVEL_INF);
 
-#define STACK_SIZE   1024
-#define SAMPLE_MS    100
-#define SAMPLE_COUNT 10
-#define QUEUE_CAPACITY 4
-#define HEALTH_CHECK_MS 100
-#define HEALTH_WARN_PERCENT 75
-#define WDT_TIMEOUT_MS 1000 /* Watchdog timeout threshold */
-#define CONSUMER_STUCK_MS (WDT_TIMEOUT_MS + 500U)
+#define STACK_SIZE            2048
+#define CONTROL_PRIORITY         7
+#define MAINTENANCE_PRIORITY     4
+#define EVENT_PERIOD_MS        250
+#define MAINTENANCE_LOAD_US  45000
 
-/* Each worker owns one task-watchdog channel. */
-static int producer_wdt_id = -1;
-static int consumer_wdt_id = -1;
-static char producer_wdt_name[] = "producer";
-static char consumer_wdt_name[] = "consumer";
-
-K_THREAD_STACK_DEFINE(consumer_stack, STACK_SIZE);
-K_THREAD_STACK_DEFINE(producer_stack, STACK_SIZE);
-K_THREAD_STACK_DEFINE(health_stack, STACK_SIZE);
-static struct k_thread consumer_thread;
-static struct k_thread producer_thread;
-static struct k_thread health_thread;
-K_SEM_DEFINE(pipeline_done, 0, 1);
-
-/* ---------- Message queue shared by the producer and consumer ---------- */
-
-struct sensor_msg {
-    int value;
-    uint32_t tick;
+struct control_event {
+    uint32_t seq;
+    uint32_t ready_ms;
 };
 
-K_MSGQ_DEFINE(sensor_queue, sizeof(struct sensor_msg), QUEUE_CAPACITY, 4);
+K_MSGQ_DEFINE(control_queue, sizeof(struct control_event), 4, 4);
+K_SEM_DEFINE(maintenance_start, 0, 1);
 
-static void health_thread_fn(void *p1, void *p2, void *p3)
+/* ================================================================== */
+/*  Timer expiry: creates one control event                           */
+/* ================================================================== */
+
+static void event_timer_expiry(struct k_timer *timer)
 {
-    ARG_UNUSED(p1);
-    ARG_UNUSED(p2);
-    ARG_UNUSED(p3);
+    ARG_UNUSED(timer);
 
-    bool warning_active = false;
+    static uint32_t seq;
+    struct control_event event = {
+        .seq = seq++,
+        .ready_ms = k_uptime_get_32(),
+    };
 
-    while (k_sem_take(&pipeline_done, K_MSEC(HEALTH_CHECK_MS)) != 0) {
-        uint32_t used = k_msgq_num_used_get(&sensor_queue);
-        bool above_threshold = used * 100U >= QUEUE_CAPACITY * HEALTH_WARN_PERCENT;
+    /* Timer expiry runs in interrupt context, so never wait here. */
+    int ret = k_msgq_put(&control_queue, &event, K_NO_WAIT);
 
-        if (above_threshold && !warning_active) {
-            LOG_WRN("[HEALTH] queue at %u%% capacity: %u/%u",
-                    HEALTH_WARN_PERCENT, used, QUEUE_CAPACITY);
-        }
-
-        warning_active = above_threshold;
+    if (ret != 0) {
+        return;
     }
+
+    /* Both threads become ready when the timer interrupt returns. */
+    k_sem_give(&maintenance_start);
+
+    /* TODO: Add an application trace event for this sequence. */
 }
 
-static void task_wdt_expired(int channel_id, void *user_data)
+K_TIMER_DEFINE(event_timer, event_timer_expiry, NULL);
+
+/* ================================================================== */
+/*  Control thread                                                   */
+/* ================================================================== */
+
+static void control_fn(void *p1, void *p2, void *p3)
 {
-    LOG_ERR("[TASK_WDT] %s timed out (channel %d)",
-            (char *)user_data, channel_id);
-}
+    ARG_UNUSED(p1); ARG_UNUSED(p2); ARG_UNUSED(p3);
 
-/* ---------- Consumer: removes and processes every queued sample ---------- */
+    while (true) {
+        struct control_event event;
+        int ret = k_msgq_get(&control_queue, &event, K_FOREVER);
 
-static void consumer_thread_fn(void *p1, void *p2, void *p3)
-{
-    ARG_UNUSED(p1);
-    ARG_UNUSED(p2);
-    ARG_UNUSED(p3);
-
-    for (int i = 0; i < SAMPLE_COUNT; i++) {
-        struct sensor_msg msg;
-        int ret = k_msgq_get(&sensor_queue, &msg, K_FOREVER);
         if (ret != 0) {
-            LOG_ERR("[CONSUMER] queue read failed: %d", ret);
-            task_wdt_delete(consumer_wdt_id);
-            return;
+            LOG_ERR("[CONTROL] receive failed: %d", ret);
+            continue;
         }
 
-        k_msleep(CONSUMER_STUCK_MS);
+        LOG_INF("[CONTROL] processed seq=%u", event.seq);
 
-        LOG_INF("[CONSUMER] value=%d tick=%u queue=%u/%u",
-                msg.value, msg.tick,
-                k_msgq_num_used_get(&sensor_queue), QUEUE_CAPACITY);
-
-        task_wdt_feed(consumer_wdt_id);
+        /* TODO: Define a response-time guarantee. */
+        /* TODO: Measure latency and count every deadline miss. */
+        /* TODO: Rate-limit repeated warning messages. */
+        /* TODO: Add an application trace event for completion. */
     }
-
-    task_wdt_delete(consumer_wdt_id);
 }
 
-/* ---------- Producer: creates samples and queues them for the consumer ---------- */
+/* ================================================================== */
+/*  Background maintenance thread                                    */
+/* ================================================================== */
 
-static void sensor_thread_fn(void *p1, void *p2, void *p3)
+static void maintenance_fn(void *p1, void *p2, void *p3)
 {
-    ARG_UNUSED(p1);
-    ARG_UNUSED(p2);
-    ARG_UNUSED(p3);
+    ARG_UNUSED(p1); ARG_UNUSED(p2); ARG_UNUSED(p3);
 
-    for (int i = 0; i < SAMPLE_COUNT; i++) {
-        k_msleep(SAMPLE_MS);
+    while (true) {
+        k_sem_take(&maintenance_start, K_FOREVER);
 
-        struct sensor_msg msg = {
-            .value = 20 + i,
-            .tick = k_uptime_get_32(),
-        };
-
-        int ret = k_msgq_put(&sensor_queue, &msg, K_FOREVER);
-        if (ret != 0) {
-            LOG_ERR("[PRODUCER] queue write failed: %d", ret);
-            task_wdt_delete(producer_wdt_id);
-            return;
-        }
-
-        LOG_INF("[PRODUCER] queued value=%d tick=%u queue=%u/%u",
-            msg.value, msg.tick,
-            k_msgq_num_used_get(&sensor_queue), QUEUE_CAPACITY);
-
-        task_wdt_feed(producer_wdt_id);
+        /* This work is important, but it has no short deadline. */
+        k_busy_wait(MAINTENANCE_LOAD_US);
     }
-
-    task_wdt_delete(producer_wdt_id);
 }
+
+K_THREAD_DEFINE(control, STACK_SIZE, control_fn,
+                NULL, NULL, NULL, CONTROL_PRIORITY, 0, 0);
+
+K_THREAD_DEFINE(maintenance, STACK_SIZE, maintenance_fn,
+                NULL, NULL, NULL, MAINTENANCE_PRIORITY, 0, 0);
 
 int main(void)
 {
-    LOG_INF("=== Producer/consumer pipeline ===");
+    LOG_INF("=== L6 Homework: Runtime Investigation ===");
+    LOG_INF("Control work must start within 10 ms");
+    LOG_INF("Inspect, measure, trace, explain, and correct the delay");
 
-    int ret = task_wdt_init(NULL);
-    if (ret != 0) {
-        LOG_ERR("Task watchdog initialization failed: %d", ret);
-        return ret;
-    }
+    k_timer_start(&event_timer, K_MSEC(500), K_MSEC(EVENT_PERIOD_MS));
 
-    producer_wdt_id = task_wdt_add(WDT_TIMEOUT_MS, task_wdt_expired,
-                                   producer_wdt_name);
-    if (producer_wdt_id < 0) {
-        LOG_ERR("Failed to add producer to task watchdog: %d", producer_wdt_id);
-        return producer_wdt_id;
-    }
-
-    consumer_wdt_id = task_wdt_add(WDT_TIMEOUT_MS, task_wdt_expired,
-                                   consumer_wdt_name);
-    if (consumer_wdt_id < 0) {
-        LOG_ERR("Failed to add consumer to task watchdog: %d", consumer_wdt_id);
-        task_wdt_delete(producer_wdt_id);
-        return consumer_wdt_id;
-    }
-
-    k_tid_t health_tid = k_thread_create(&health_thread, health_stack,
-                                          K_THREAD_STACK_SIZEOF(health_stack),
-                                          health_thread_fn,
-                                          NULL, NULL, NULL, 6, 0, K_NO_WAIT);
-    k_tid_t consumer_tid = k_thread_create(&consumer_thread, consumer_stack,
-                                            K_THREAD_STACK_SIZEOF(consumer_stack),
-                                            consumer_thread_fn,
-                                            NULL, NULL, NULL, 5, 0, K_NO_WAIT);
-    k_tid_t producer_tid = k_thread_create(&producer_thread, producer_stack,
-                                            K_THREAD_STACK_SIZEOF(producer_stack),
-                                            sensor_thread_fn,
-                                            NULL, NULL, NULL, 5, 0, K_NO_WAIT);
-
-    k_thread_join(producer_tid, K_FOREVER);
-    k_thread_join(consumer_tid, K_FOREVER);
-    k_sem_give(&pipeline_done);
-    k_thread_join(health_tid, K_FOREVER);
-    LOG_INF("Pipeline complete");
-    LOG_INF("Status: PASS");
     return 0;
 }
