@@ -1,8 +1,19 @@
+/*
+ * Goal: explain and reduce a Zephyr scheduling delay
+ * Tasks:
+ * Run the provided producer-consumer application 
+ * Define and detect its response-time guarantee
+ * Add sequence-based logs and deadline-miss counting
+ * Inspect thread priorities and states with the kernel shell
+ * Capture CTF and decode it with Babeltrace
+ * Apply one correction and repeat the measurement
+ */
+
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/tracing/tracing.h>
 
-LOG_MODULE_REGISTER(homework, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(Test, LOG_LEVEL_INF);
 
 #define STACK_SIZE            2048
 #define CONTROL_PRIORITY         7
@@ -97,7 +108,7 @@ K_THREAD_DEFINE(maintenance, STACK_SIZE, maintenance_fn,
 
 int main(void)
 {
-    LOG_INF("=== L6 Homework: Runtime Investigation ===");
+    LOG_INF("=== L6 : Runtime Investigation ===");
     LOG_INF("Control work must start within 10 ms");
     LOG_INF("Inspect, measure, trace, explain, and correct the delay");
 
