@@ -86,8 +86,13 @@ jobs:
           qemu_status=${PIPESTATUS[0]}
           set -e
 
-          if ! grep -q "Status: PASS" qemu.log; then
+          if [[ "$qemu_status" -ne 0 && "$qemu_status" -ne 124 ]]; then
             echo "QEMU app did not report success (runner exit code: $qemu_status)." >&2
+            exit 1
+          fi
+
+          if ! grep -qE '\[CONTROL\] processed seq=[0-9]+ successfully' qemu.log; then
+            echo "QEMU app did not process any control events." >&2
             exit 1
           fi
 
@@ -129,8 +134,13 @@ jobs:
           native_sim_status=${PIPESTATUS[0]}
           set -e
 
-          if ! grep -q "Status: PASS" native_sim.log; then
+          if [[ "$native_sim_status" -ne 0 && "$native_sim_status" -ne 124 ]]; then
             echo "native_sim app did not report success (runner exit code: $native_sim_status)." >&2
+            exit 1
+          fi
+
+          if ! grep -qE '\[CONTROL\] processed seq=[0-9]+ successfully' native_sim.log; then
+            echo "native_sim app did not process any control events." >&2
             exit 1
           fi
 
