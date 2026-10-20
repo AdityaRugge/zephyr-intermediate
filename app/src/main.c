@@ -69,6 +69,8 @@ static void control_fn(void *p1, void *p2, void *p3)
     ARG_UNUSED(p1); ARG_UNUSED(p2); ARG_UNUSED(p3);
 
     static uint32_t deadline_misses = 0;
+    static uint32_t last_warn_ms = 0;
+    const uint32_t warn_interval_ms = 1000; // Rate-limit warnings to once per second
 
     while (true) {
         struct control_event event;
@@ -91,11 +93,15 @@ static void control_fn(void *p1, void *p2, void *p3)
         /* 2. Detect and count deadline misses */
         if (latency > RESPONSE_TIME_GUARANTEE_MS) {
             deadline_misses++;
-            LOG_WRN("[CONTROL] DEADLINE MISS: seq=%u took %u ms (Limit: %d ms). Total misses: %u",
-                    event.seq, latency, RESPONSE_TIME_GUARANTEE_MS, deadline_misses);
-        } else {
-            LOG_INF("[CONTROL] processed seq=%u successfully in %u ms", 
-                    event.seq, latency);
+            /* 3. Rate-limit repeated warning messages */
+            if ((now - last_warn_ms) >= warn_interval_ms) {
+                LOG_WRN("[CONTROL] DEADLINE MISS: seq=%u | Latency: %u ms (Limit: %u ms) | Total Misses: %u",
+                        event.seq, latency, RESPONSE_TIME_GUARANTEE_MS, deadline_misses);
+                last_warn_ms = now;
+            } else {
+                LOG_INF("[CONTROL] processed seq=%u successfully in %u ms", 
+                        event.seq, latency);
+            }
         }
     }
 }
