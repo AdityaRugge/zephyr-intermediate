@@ -21,6 +21,8 @@ LOG_MODULE_REGISTER(Test, LOG_LEVEL_INF);
 #define EVENT_PERIOD_MS        250
 #define MAINTENANCE_LOAD_US  45000
 
+#define RESPONSE_TIME_GUARANTEE_MS  10 /* Control work must start within 10 ms of the timer expiry. */
+
 struct control_event {
     uint32_t seq;
     uint32_t ready_ms;
@@ -66,6 +68,8 @@ static void control_fn(void *p1, void *p2, void *p3)
 {
     ARG_UNUSED(p1); ARG_UNUSED(p2); ARG_UNUSED(p3);
 
+    static uint32_t deadline_misses = 0;
+
     while (true) {
         struct control_event event;
         int ret = k_msgq_get(&control_queue, &event, K_FOREVER);
@@ -75,12 +79,24 @@ static void control_fn(void *p1, void *p2, void *p3)
             continue;
         }
 
-        LOG_INF("[CONTROL] processed seq=%u", event.seq);
-
         /* TODO: Define a response-time guarantee. */
         /* TODO: Measure latency and count every deadline miss. */
         /* TODO: Rate-limit repeated warning messages. */
         /* TODO: Add an application trace event for completion. */
+        
+        /* 1. Measure response time latency */
+        uint32_t now = k_uptime_get_32();
+        uint32_t latency = now - event.ready_ms;
+
+        /* 2. Detect and count deadline misses */
+        if (latency > RESPONSE_TIME_GUARANTEE_MS) {
+            deadline_misses++;
+            LOG_WRN("[CONTROL] DEADLINE MISS: seq=%u took %u ms (Limit: %d ms). Total misses: %u",
+                    event.seq, latency, RESPONSE_TIME_GUARANTEE_MS, deadline_misses);
+        } else {
+            LOG_INF("[CONTROL] processed seq=%u successfully in %u ms", 
+                    event.seq, latency);
+        }
     }
 }
 
