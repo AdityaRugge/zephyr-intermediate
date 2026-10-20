@@ -16,8 +16,8 @@
 LOG_MODULE_REGISTER(Test, LOG_LEVEL_INF);
 
 #define STACK_SIZE            2048
-#define CONTROL_PRIORITY         7
-#define MAINTENANCE_PRIORITY     4
+#define CONTROL_PRIORITY         4
+#define MAINTENANCE_PRIORITY     7
 #define EVENT_PERIOD_MS        250
 #define MAINTENANCE_LOAD_US  45000
 
@@ -55,7 +55,6 @@ static void event_timer_expiry(struct k_timer *timer)
     /* Both threads become ready when the timer interrupt returns. */
     k_sem_give(&maintenance_start);
 
-    /* TODO: Add an application trace event for this sequence. */
 }
 
 K_TIMER_DEFINE(event_timer, event_timer_expiry, NULL);
@@ -81,27 +80,21 @@ static void control_fn(void *p1, void *p2, void *p3)
             continue;
         }
 
-        /* TODO: Define a response-time guarantee. */
-        /* TODO: Measure latency and count every deadline miss. */
-        /* TODO: Rate-limit repeated warning messages. */
-        /* TODO: Add an application trace event for completion. */
-        
-        /* 1. Measure response time latency */
         uint32_t now = k_uptime_get_32();
         uint32_t latency = now - event.ready_ms;
 
-        /* 2. Detect and count deadline misses */
+        sys_trace_named_event("control_response", event.seq, latency);
+
         if (latency > RESPONSE_TIME_GUARANTEE_MS) {
             deadline_misses++;
-            /* 3. Rate-limit repeated warning messages */
             if ((now - last_warn_ms) >= warn_interval_ms) {
                 LOG_WRN("[CONTROL] DEADLINE MISS: seq=%u | Latency: %u ms (Limit: %u ms) | Total Misses: %u",
                         event.seq, latency, RESPONSE_TIME_GUARANTEE_MS, deadline_misses);
                 last_warn_ms = now;
-            } else {
-                LOG_INF("[CONTROL] processed seq=%u successfully in %u ms", 
-                        event.seq, latency);
             }
+        } else {
+            LOG_INF("[CONTROL] processed seq=%u successfully in %u ms",
+                    event.seq, latency);
         }
     }
 }
@@ -117,8 +110,9 @@ static void maintenance_fn(void *p1, void *p2, void *p3)
     while (true) {
         k_sem_take(&maintenance_start, K_FOREVER);
 
-        /* This work is important, but it has no short deadline. */
+        sys_trace_named_event("maintenance_start", 0, 0);
         k_busy_wait(MAINTENANCE_LOAD_US);
+        sys_trace_named_event("maintenance_end", 0, 0);
     }
 }
 
@@ -130,6 +124,7 @@ K_THREAD_DEFINE(maintenance, STACK_SIZE, maintenance_fn,
 
 int main(void)
 {
+    sys_trace_named_event("app_start", CONTROL_PRIORITY, MAINTENANCE_PRIORITY);
     LOG_INF("=== L6 : Runtime Investigation ===");
     LOG_INF("Control work must start within 10 ms");
     LOG_INF("Inspect, measure, trace, explain, and correct the delay");

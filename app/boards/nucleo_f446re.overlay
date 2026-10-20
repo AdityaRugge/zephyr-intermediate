@@ -1,5 +1,5 @@
 / {
 	chosen {
-		zephyr,tracing-uart = &usart1;
+		zephyr,tracing-uart = &usart2;
 	};
 };
