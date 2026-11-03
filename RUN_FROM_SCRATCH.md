@@ -8,6 +8,16 @@ This note captures the exact fix that made the Zephyr + TF-M secure-boot demo wo
 
 The container image was missing a usable QEMU binary. The fix was to add `qemu-system-arm` to the package install list in [docker/Dockerfile](docker/Dockerfile):
 
+If the GitHub fetch of Zephyr fails during `west update` with a GnuTLS / early EOF error, add this before the `west init` step as well:
+
+```dockerfile
+USER dev
+RUN git config --global http.version HTTP/1.1
+```
+
+This forces Git to use HTTP/1.1 instead of HTTP/2, which avoids the TLS decode failure seen during the manifest fetch.
+
+
 ```dockerfile
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \

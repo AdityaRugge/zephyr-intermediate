@@ -72,6 +72,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
 RUN mkdir /opt/zephyr-ws && chown dev:dev /opt/zephyr-ws
 
 USER dev
+RUN git config --global http.version HTTP/1.1
 COPY --chown=dev:dev west.yml /opt/zephyr-ws/manifest/west.yml
 WORKDIR /opt/zephyr-ws
 RUN west init -l manifest && west update --narrow -o=--depth=1
