@@ -1,0 +1,34 @@
+# 0 "/opt/zephyr-ws/secure-boot-app/build-keys/tfm/bl2/ext/mcuboot/signing_layout_ns.c"
+# 1 "/opt/zephyr-ws/secure-boot-app/build-keys/tfm//"
+# 0 "<built-in>"
+# 0 "<command-line>"
+# 1 "/opt/zephyr-ws/modules/tee/tf-m/trusted-firmware-m/platform/include/cmsis_override.h" 1
+# 0 "<command-line>" 2
+# 1 "/opt/zephyr-ws/secure-boot-app/build-keys/tfm/bl2/ext/mcuboot/signing_layout_ns.c"
+
+
+
+
+
+
+# 1 "/opt/zephyr-ws/modules/tee/tf-m/trusted-firmware-m/platform/ext/target/arm/mps2/an521/partition/region_defs.h" 1
+# 20 "/opt/zephyr-ws/modules/tee/tf-m/trusted-firmware-m/platform/ext/target/arm/mps2/an521/partition/region_defs.h"
+# 1 "/opt/zephyr-ws/modules/tee/tf-m/trusted-firmware-m/platform/ext/target/arm/mps2/an521/partition/flash_layout.h" 1
+# 21 "/opt/zephyr-ws/modules/tee/tf-m/trusted-firmware-m/platform/ext/target/arm/mps2/an521/partition/region_defs.h" 2
+# 8 "/opt/zephyr-ws/secure-boot-app/build-keys/tfm/bl2/ext/mcuboot/signing_layout_ns.c" 2
+
+
+
+enum image_attributes {
+    RE_SECURE_IMAGE_OFFSET = (0x0),
+    RE_SECURE_IMAGE_MAX_SIZE = (0x80000),
+    RE_NON_SECURE_IMAGE_OFFSET = ((0x0) + (0x80000)),
+    RE_NON_SECURE_IMAGE_MAX_SIZE = (0x80000),
+
+
+
+    RE_SIGN_BIN_SIZE = ((0x80000)),
+
+
+
+};

@@ -1,0 +1,8 @@
+"cmsis":"/opt/zephyr-ws/modules/hal/cmsis":"${ZEPHYR_CMSIS_CMAKE_DIR}"
+"mbedtls":"/opt/zephyr-ws/modules/crypto/mbedtls":"${ZEPHYR_MBEDTLS_CMAKE_DIR}"
+"mcuboot":"/opt/zephyr-ws/bootloader/mcuboot":"/opt/zephyr-ws/bootloader/mcuboot/boot/bootutil/zephyr"
+"picolibc":"/opt/zephyr-ws/modules/lib/picolibc":"/opt/zephyr-ws/modules/lib/picolibc"
+"segger":"/opt/zephyr-ws/modules/debug/segger":"${ZEPHYR_SEGGER_CMAKE_DIR}"
+"tinycrypt":"/opt/zephyr-ws/modules/crypto/tinycrypt":"/opt/zephyr-ws/modules/crypto/tinycrypt"
+"trusted-firmware-m":"/opt/zephyr-ws/modules/tee/tf-m/trusted-firmware-m":"${ZEPHYR_TRUSTED_FIRMWARE_M_CMAKE_DIR}"
+"zcbor":"/opt/zephyr-ws/modules/lib/zcbor":"${ZEPHYR_ZCBOR_CMAKE_DIR}"

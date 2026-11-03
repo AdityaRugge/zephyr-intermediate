@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/CMakeFiles/tfm"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/CMakeFiles/tfm.rule"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/CMakeFiles/tfm-complete.rule"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-build.rule"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-configure.rule"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-download.rule"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-install.rule"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-mkdir.rule"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-patch.rule"
+		},
+		{
+			"file" : "/opt/zephyr-ws/secure-boot-app/build-keys/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"tfm"
+		],
+		"name" : "tfm"
+	}
+}
