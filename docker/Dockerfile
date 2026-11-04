@@ -4,6 +4,7 @@ ARG SDK_VERSION=0.16.9
 ARG SDK_TOOLCHAIN=arm-zephyr-eabi
 ARG UID=1000
 ARG GID=1000
+ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -19,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       gperf \
       make \
       ninja-build \
+    qemu-system-arm \
       python3-dev \
       python3-pip \
       python3-venv \
@@ -27,8 +29,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
-RUN base="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VERSION}" \
-    && tarball="zephyr-sdk-${SDK_VERSION}_linux-x86_64_minimal.tar.xz" \
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) sdk_arch=x86_64 ;; \
+      arm64) sdk_arch=aarch64 ;; \
+      *) echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    base="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VERSION}" \
+    && tarball="zephyr-sdk-${SDK_VERSION}_linux-${sdk_arch}_minimal.tar.xz" \
     && curl -fsSL -O "${base}/${tarball}" \
     && curl -fsSL -O "${base}/sha256.sum" \
     && grep "${tarball}" sha256.sum | sha256sum -c - \
@@ -55,12 +63,16 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && groupadd -g ${GID} dev \
-    && useradd -u ${UID} -g ${GID} -m -s /bin/bash dev
+    && if ! getent group dev >/dev/null; then \
+         if getent group "${GID}" >/dev/null; then groupadd --non-unique -g "${GID}" dev; \
+         else groupadd -g "${GID}" dev; fi; \
+       fi \
+    && useradd -u "${UID}" -g dev -m -s /bin/bash dev
 
 RUN mkdir /opt/zephyr-ws && chown dev:dev /opt/zephyr-ws
 
 USER dev
+RUN git config --global http.version HTTP/1.1
 COPY --chown=dev:dev west.yml /opt/zephyr-ws/manifest/west.yml
 WORKDIR /opt/zephyr-ws
 RUN west init -l manifest && west update --narrow -o=--depth=1

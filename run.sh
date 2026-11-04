@@ -32,7 +32,7 @@ exec docker run --rm ${TTY_FLAGS} \
         echo "=== Running in QEMU for $2 seconds ==="
         status=0
         timeout --foreground "$2" \
-            "${ZEPHYR_SDK_INSTALL_DIR}/sysroots/x86_64-pokysdk-linux/usr/bin/qemu-system-arm" \
+            qemu-system-arm \
             -machine mps2-an521 -cpu cortex-m33 -m 16 -nographic -vga none \
             -device loader,file=build/zephyr/zephyr.elf || status=$?
 
